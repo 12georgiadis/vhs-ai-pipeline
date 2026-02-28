@@ -1,0 +1,27 @@
+# Analysis output (large, local only)
+vhs-analysis/
+vhs_analysis_output/
+*.fcpxml
+*.progress.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment (never commit API keys)
+.env
+*.env
+secrets/
+
+# Proxies and temp video files
+proxies/
+chunks/
+*.m4v
