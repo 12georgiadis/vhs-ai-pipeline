@@ -85,31 +85,98 @@ Three-tier system. Use what you need:
 
 ---
 
-## Installation
+## Deployment
 
-### macOS
+Three supported environments. All produce identical output.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        DEPLOYMENT OPTIONS                           │
+│                                                                     │
+│  ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐  │
+│  │   macOS      │    │   Mac Mini M4    │    │   Windows WSL2   │  │
+│  │   Desktop    │    │   Headless       │    │   / Linux        │  │
+│  │              │    │   (recommended)  │    │                  │  │
+│  │  Direct run  │    │  SSH + tmux      │    │  WSL terminal    │  │
+│  │  USB local   │    │  USB via SSH     │    │  NAS / network   │  │
+│  └──────┬───────┘    └───────┬──────────┘    └────────┬─────────┘  │
+│         │                   │                         │            │
+│         └───────────────────┴─────────────────────────┘            │
+│                             │                                       │
+│                    ┌────────▼────────┐                              │
+│                    │  Gemini API     │                              │
+│                    │  Files API      │                              │
+│                    │  (cloud, temp)  │                              │
+│                    └─────────────────┘                              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Mac Mini M4 — headless server (recommended for long runs)
+
+Best setup: run on a dedicated machine via SSH. The pipeline can take hours —
+tmux keeps it alive if the connection drops.
+
+```
+Your laptop / iPad
+       │
+       │  SSH / mosh (Tailscale or local network)
+       ▼
+Mac Mini M4  ──→  USB drive with footage  ──→  Gemini API
+       │
+       └── tmux session "analysis"
+               │
+               ├── vhs_analyzer.py running in foreground
+               └── progress.json updated after each video
+```
 
 ```bash
+# On Mac Mini: one-time setup
+brew install ffmpeg python
+pip install google-genai
+echo 'export GEMINI_API_KEY="your-key"' >> ~/.zshrc
+
+# Every run: from any device
+ssh user@mac-mini-ip
+tmux new -s analysis              # or: tmux attach -s analysis
+ls /Volumes/                      # verify USB is mounted
+python vhs_analyzer.py /Volumes/USB/footage
+# Ctrl+B then D to detach — run continues in background
+```
+
+### macOS Desktop
+
+```bash
+# Install
 brew install ffmpeg
 pip install google-genai
 export GEMINI_API_KEY="your-key"   # https://aistudio.google.com/apikey
+
+# Run
+python vhs_analyzer.py /Volumes/USB/footage
 ```
 
-### Windows
+### Windows (WSL2) or Linux
+
+```bash
+# Ubuntu / WSL2
+sudo apt install ffmpeg python3-pip
+pip install google-genai
+export GEMINI_API_KEY="your-key"
+
+# Footage path examples:
+# WSL2: /mnt/d/footage/              (D:\ drive)
+# Linux: /media/user/USB/            (mounted USB)
+# NAS:  /mnt/nas/archive/            (network mount)
+
+python vhs_analyzer.py /mnt/d/footage
+```
 
 ```powershell
+# PowerShell (native Windows, no WSL)
 # 1. Download ffmpeg: https://ffmpeg.org/download.html → add ffmpeg\bin to PATH
 pip install google-genai
 [System.Environment]::SetEnvironmentVariable("GEMINI_API_KEY", "your-key", "User")
-```
-
-### Mac Mini M4 (remote)
-
-```bash
-ssh user@your-mac-mini-ip
-tmux new -s analysis          # stays alive if connection drops
-python vhs_analyzer.py /Volumes/USB/footage --blind
-# Detach: Ctrl+B D  /  Reattach: tmux attach -t analysis
+python vhs_analyzer.py D:\footage\archive
 ```
 
 ---
