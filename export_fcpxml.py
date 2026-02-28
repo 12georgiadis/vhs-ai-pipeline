@@ -56,17 +56,19 @@ def _make_marker(parent: ET.Element, segment: dict, fps: float = 25.0):
     if not title:
         title = type_plan
 
-    # Note longue : interprétation monteur + comportement + transcription Joshua + passe aveugle
-    note = segment.get("interpretation_monteur") or segment.get("description_visuelle", "")
-    comportement = segment.get("comportement_joshua")
-    if comportement:
-        note = f"{comportement}\n\n{note}"
-    transcription = segment.get("transcription_joshua")
+    # Note: editorial interpretation + subject behavior + transcription + blind pass observation
+    # Supports both generic field names (subject_*) and project-specific overrides
+    note = (segment.get("editor_interpretation") or segment.get("interpretation_monteur")
+            or segment.get("visual_description") or segment.get("description_visuelle", ""))
+    behavior = segment.get("subject_behavior")
+    if behavior:
+        note = f"{behavior}\n\n{note}"
+    transcription = segment.get("subject_transcription")
     if transcription:
         note = f'"{transcription}"\n\n{note}'
-    blind_obs = segment.get("blind_ce_qui_me_retient")
+    blind_obs = segment.get("blind_ce_qui_me_retient") or segment.get("what_catches_my_eye")
     if blind_obs:
-        note = f"[MONTEUR AVEUGLE] {blind_obs}\n\n{note}"
+        note = f"[BLIND PASS] {blind_obs}\n\n{note}"
 
     attribs = {
         "start":    start_r,
