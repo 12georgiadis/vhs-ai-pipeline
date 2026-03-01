@@ -84,7 +84,7 @@ def generate_video_report(video_path: Path, analysis: dict, output_path: Path):
                 f"**Description** : {seg.get('description_visuelle', '')}",
                 f"**Audio** : {seg.get('description_audio', 'N/A')}",
                 f"**Interprétation** : {seg.get('interpretation_monteur', '')}",
-                f"**Émotion** : {seg.get('emotion_dominante', '')}",
+                f"**Émotion** : {seg.get('emotion_visible') or ''}",
                 "",
             ]
 

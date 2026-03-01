@@ -50,25 +50,32 @@ def _make_marker(parent: ET.Element, segment: dict, fps: float = 25.0):
     start_r    = _tc_to_rational(tc_start, fps)
     duration_r = _duration_rational(tc_start, tc_end, fps)
 
-    # Titre court pour le marker
-    emotion = segment.get("emotion_dominante", "")
-    title = f"[{type_plan.upper()}] {emotion}".strip(" []")
-    if not title:
-        title = type_plan
+    # ── Titre : signal analytique + ancrage mémorable (couleur = déjà le type)
+    signal = segment.get("signal_pertinent", "")
+    quote  = segment.get("transcription_joshua", "")
+    if quote:
+        anchor = f'· "{quote[:30]}"'
+    elif segment.get("note_montage"):
+        anchor = f'· {segment["note_montage"][:30]}'
+    else:
+        anchor = ""
+    title = f"{signal} {anchor}".strip() or type_plan
 
-    # Note: editorial interpretation + subject behavior + transcription + blind pass observation
-    # Supports both generic field names (subject_*) and project-specific overrides
-    note = (segment.get("editor_interpretation") or segment.get("interpretation_monteur")
-            or segment.get("visual_description") or segment.get("description_visuelle", ""))
-    behavior = segment.get("subject_behavior")
-    if behavior:
-        note = f"{behavior}\n\n{note}"
-    transcription = segment.get("subject_transcription")
-    if transcription:
-        note = f'"{transcription}"\n\n{note}'
-    blind_obs = segment.get("blind_ce_qui_me_retient") or segment.get("what_catches_my_eye")
-    if blind_obs:
-        note = f"[BLIND PASS] {blind_obs}\n\n{note}"
+    # ── Note : du plus au moins actionnable pour le monteur
+    parts = []
+    if segment.get("interpretation_monteur"):
+        parts.append(segment["interpretation_monteur"])
+    if segment.get("note_montage"):
+        parts.append(f"→ {segment['note_montage']}")
+    if quote:
+        parts.append(f'🗣 "{quote}"')
+    if segment.get("comportement_joshua"):
+        parts.append(segment["comportement_joshua"])
+    if segment.get("signaux_langage"):
+        parts.append(f"[langage] {segment['signaux_langage']}")
+    if segment.get("blind_ce_qui_me_retient"):
+        parts.append(f"[aveugle] {segment['blind_ce_qui_me_retient']}")
+    note = "\n\n".join(parts)
 
     attribs = {
         "start":    start_r,
@@ -153,7 +160,7 @@ def generate_fcpxml(
 
     # ── Library → Event → Project → Sequence ───────────────────────────────────
     library = ET.SubElement(root, "library")
-    event   = ET.SubElement(library, "event", {"name": "Archive Analysis"})
+    event   = ET.SubElement(library, "event", {"name": "VHS Goldberg Analysis"})
     project = ET.SubElement(event, "project", {"name": f"{video_name} — Analysis"})
     sequence = ET.SubElement(project, "sequence", {
         "duration": duration_r,

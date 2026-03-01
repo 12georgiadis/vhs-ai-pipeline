@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-# vhs_analyzer.py — Archive footage AI analysis pipeline
+# vhs_analyzer.py — Pipeline d'analyse sémantique VHS pour "The Goldberg Variations"
 #
-# Usage:
-#   python vhs_analyzer.py /path/to/footage/
-#   python vhs_analyzer.py video.mp4
-#   python vhs_analyzer.py /footage/ --blind       # enable blind pass (2a)
-#   python vhs_analyzer.py /footage/ --resume
-#   python vhs_analyzer.py /footage/ --dry-run
-#   python vhs_analyzer.py /footage/ --retry-failed
-#   python vhs_analyzer.py /footage/ --phase 4     # export only (JSON already present)
-#   python vhs_analyzer.py /footage/ --no-proxy
+# Usage :
+#   python vhs_analyzer.py /dossier/vhs/
+#   python vhs_analyzer.py /chemin/video.mp4
+#   python vhs_analyzer.py /dossier/ --blind          # active la passe aveugle (2a)
+#   python vhs_analyzer.py /dossier/ --resume
+#   python vhs_analyzer.py /dossier/ --dry-run
+#   python vhs_analyzer.py /dossier/ --retry-failed
+#   python vhs_analyzer.py /dossier/ --phase 4        # export seul (JSON déjà présents)
+#   python vhs_analyzer.py /dossier/ --no-proxy
 
 import argparse
 import json
 import os
 import sys
 from pathlib import Path
+
+# Charge la clé API depuis l'env Ismaël si dispo
+_secrets = Path.home() / ".claude" / "secrets" / "opc-skills.env"
+if _secrets.exists():
+    for line in _secrets.read_text().splitlines():
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
 
 import config
 from analyze import (
@@ -55,12 +63,15 @@ def estimate_cost(videos: list[Path]) -> None:
             total_s += 3600  # suppose 1h si ffprobe échoue
 
     total_h = total_s / 3600
-    # ~92 tokens/s avec proxy 1fps (approximation prudente)
-    tokens = total_s * 92
-    # Flash preview input + output (output verbeux = ~4x l'input)
-    cost_flash = tokens * (0.50 + 3.00 * 4) / 1_000_000
-    cost_blind  = tokens * (0.50 + 3.00 * 1) / 1_000_000  # output minimal
-    cost_deep   = tokens * 0.10 * (1.25 / 1_000_000)      # ~10% du corpus en deep pass
+    # Input : ~92 tokens/s avec proxy 1fps + LOW resolution
+    input_tokens = total_s * 92
+    # Output : ~650 tokens/segment JSON, 1 segment toutes les 30s
+    output_tokens = (total_s / 30) * 650
+    output_tokens_blind = (total_s / 30) * 200  # format court passe aveugle
+
+    cost_flash  = (input_tokens * 0.50 + output_tokens * 3.00) / 1_000_000
+    cost_blind  = (input_tokens * 0.50 + output_tokens_blind * 3.00) / 1_000_000
+    cost_deep   = input_tokens * 0.10 * 1.25 / 1_000_000  # ~10% corpus, 2.5-pro
 
     print(f"\n  Vidéos     : {len(videos)}")
     print(f"  Durée tot. : {total_h:.1f}h ({total_s/60:.0f} min)")
@@ -76,14 +87,22 @@ def estimate_cost(videos: list[Path]) -> None:
 def phase_preanalysis(videos: list[Path], work_dir: Path, tracker: ProgressTracker) -> dict:
     """Phase 1 : pré-analyse rapide d'un échantillon de chaque vidéo."""
     corpus_file = work_dir / config.CORPUS_FILE
-    if corpus_file.exists():
-        print("[Phase 1] corpus_context.json déjà présent → skip")
-        return json.loads(corpus_file.read_text())
 
-    print("\n[Phase 1] Pré-analyse du corpus ...")
-    corpus = {}
+    # Chargement du corpus partiel si présent (reprise après crash)
+    corpus = json.loads(corpus_file.read_text()) if corpus_file.exists() else {}
+    already_done = set(corpus.keys())
+    remaining = [v for v in videos if v.name not in already_done]
 
-    for video in videos:
+    if not remaining:
+        print("[Phase 1] corpus_context.json déjà complet → skip")
+        return corpus
+
+    if already_done:
+        print(f"\n[Phase 1] Reprise pré-analyse ({len(already_done)} déjà faites, {len(remaining)} restantes) ...")
+    else:
+        print("\n[Phase 1] Pré-analyse du corpus ...")
+
+    for video in remaining:
         print(f"\n  {video.name}")
         sample = extract_sample(video, work_dir)
 
@@ -93,11 +112,12 @@ def phase_preanalysis(videos: list[Path], work_dir: Path, tracker: ProgressTrack
         result = with_retry(do_preanalysis, f"preanalysis_{video.name}", tracker)
         if result:
             corpus[video.name] = result
+            # Sauvegarde incrémentale après chaque vidéo
+            corpus_file.write_text(json.dumps(corpus, indent=2, ensure_ascii=False))
             print(f"  Granularité : {result.get('granularite_recommandee_secondes', '?')}s"
                   f"  | Type : {result.get('type_materiau', '?')}"
                   f"  | Qualité : {result.get('qualite_image', '?')}")
 
-    corpus_file.write_text(json.dumps(corpus, indent=2, ensure_ascii=False))
     print(f"\n[Phase 1] corpus_context.json écrit ({len(corpus)} vidéos)")
     return corpus
 
@@ -270,12 +290,12 @@ def phase_export(videos: list[Path], all_analyses: dict, work_dir: Path):
 
 def phase_synthesis(all_analyses: dict, work_dir: Path):
     """Phase 5 : synthèse globale du corpus."""
-    output_path = work_dir / "SYNTHESIS.md"
+    output_path = work_dir / "SYNTHESE_GOLDBERG.md"
     if output_path.exists():
-        print("\n[Synthesis] Already exists → skip (delete the file to regenerate)")
+        print("\n[Synthèse] Déjà existante → skip (supprime le fichier pour régénérer)")
         return
 
-    print("\n[Synthesis] Generating corpus overview ...")
+    print("\n[Synthèse] Génération de la bible de corpus ...")
     synthesis_md = generate_synthesis(list(all_analyses.values()))
     generate_synthesis_report(synthesis_md, output_path)
     print(f"  → {output_path}")
@@ -285,7 +305,7 @@ def phase_synthesis(all_analyses: dict, work_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AI-powered archive footage analysis pipeline",
+        description="Analyse sémantique de VHS pour 'The Goldberg Variations'",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemples :
@@ -317,7 +337,7 @@ Exemples :
         print(f"ERREUR : chemin introuvable : {source}")
         sys.exit(1)
 
-    local_output_base = source.parent / "vhs-analysis" if source.is_file() else source / "vhs-analysis"
+    local_output_base = Path.home() / "Projects" / "Films" / "goldberg" / "vhs-analysis"
     work_dir = local_output_base if source.is_dir() else local_output_base / source.stem
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -327,7 +347,7 @@ Exemples :
         sys.exit(1)
 
     print(f"\n{'='*60}")
-    print(f"  VHS Archive Analyzer")
+    print(f"  VHS Analyzer — The Goldberg Variations")
     print(f"{'='*60}")
     print(f"  Source  : {source}")
     print(f"  Output  : {work_dir}")
@@ -361,9 +381,8 @@ Exemples :
         sys.exit(0)
 
     if not config.GEMINI_API_KEY:
-        print("ERROR: GEMINI_API_KEY missing.")
-        print("Set it: export GEMINI_API_KEY=your-key")
-        print("Get a key at: https://aistudio.google.com/apikey")
+        print("ERREUR : GEMINI_API_KEY manquante.")
+        print("Lance : source ~/.claude/secrets/opc-skills.env")
         sys.exit(1)
 
     all_analyses = {}

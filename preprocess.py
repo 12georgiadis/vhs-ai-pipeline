@@ -61,7 +61,7 @@ def create_proxy(video_path: Path, output_dir: Path, start_offset_s: int = 0) ->
         "ffmpeg", "-y",
         "-i", str(video_path),
         "-vf", vf,
-        "-c:v", "libx264", "-crf", "28", "-preset", "fast",
+        "-c:v", "h264_videotoolbox", "-q:v", "60",  # GPU Apple Silicon, 3-5x plus rapide
         "-c:a", "aac", "-b:a", "96k",   # audio conservé pour analyse Gemini
         str(proxy_path),
     ]
@@ -102,7 +102,10 @@ def chunk_video(video_path: Path, output_dir: Path, duration_s: float) -> list[d
         meta_path.write_text(json.dumps(meta))
 
         chunks.append({"path": chunk_path, "start_s": start, "end_s": end})
-        start = end - CHUNK_OVERLAP_S  # overlap de 30s
+        next_start = start + CHUNK_DURATION_S - CHUNK_OVERLAP_S
+        if next_start >= duration_s:  # rien à couper après la fin
+            break
+        start = next_start
 
     return chunks
 
@@ -136,6 +139,8 @@ def prepare_video(video_path: Path, work_dir: Path) -> list[dict]:
     for chunk in chunks:
         proxy = create_proxy(chunk["path"], proxy_dir, start_offset_s=int(chunk["start_s"]))
         segments.append({"path": proxy, "start_s": chunk["start_s"], "end_s": chunk["end_s"]})
+        # Suppression du chunk brut après création du proxy (libère ~2GB par vidéo)
+        chunk["path"].unlink(missing_ok=True)
 
     return segments
 
